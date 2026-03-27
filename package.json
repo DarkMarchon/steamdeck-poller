@@ -1,0 +1,13 @@
+{
+  "name": "steamdeck-alert-poller",
+  "version": "1.0.0",
+  "description": "Polls Steam for refurbished Steam Deck stock and sends push notifications",
+  "main": "poller.js",
+  "scripts": {
+    "start": "node poller.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0",
+    "node-fetch": "^3.3.2"
+  }
+}

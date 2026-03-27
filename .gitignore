@@ -1,0 +1,4 @@
+node_modules/ 
+.env 
+stock-state.json 
+VSCodeUserSetup-x64-1.113.0.exe 

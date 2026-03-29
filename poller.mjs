@@ -182,5 +182,11 @@ async function poll() {
 // ---------------------------------------------------------------------------
 
 console.log('[poller] starting — polling every', POLL_MS / 1000, 'seconds');
+
+if (process.env.TEST_NOTIFICATION === 'true') {
+  console.log('[test] sending test notification...');
+  await notify('256 GB LCD (test)', true);
+}
+
 poll();
 setInterval(poll, POLL_MS);

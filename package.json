@@ -2,12 +2,15 @@
   "name": "steamdeck-alert-poller",
   "version": "1.0.0",
   "description": "Polls Steam for Steam Deck stock",
-  "main": "poller.js",
+  "main": "poller.mjs",
   "type": "module",
   "scripts": {
-    "start": "node poller.js"
+    "start": "node poller.mjs"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
   }
 }

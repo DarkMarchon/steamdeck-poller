@@ -4,22 +4,19 @@ import admin from 'firebase-admin';
 // Config
 // ---------------------------------------------------------------------------
 
-const REFURB_URL = 'https://store.steampowered.com/sale/steamdeckrefurbished/';
-const NEW_URL    = 'https://store.steampowered.com/steamdeck/';
-const POLL_MS    = 60_000;
+const POLL_MS = 60_000;
 
-const REFURBISHED_MODELS = [
-  { name: '64 GB LCD',   subid: '903905' },
-  { name: '256 GB LCD',  subid: '903906' },
-  { name: '512 GB LCD',  subid: '903907' },
-  { name: '512 GB OLED', subid: '1202542' },
-  { name: '1 TB OLED',   subid: '1202547' },
-];
+const STOCK_API = 'https://api.steampowered.com/IPhysicalGoodsService/CheckInventoryAvailableByPackage/v1';
 
-const NEW_MODELS = [
-  { name: '256 GB LCD',  subid: '595604' },
-  { name: '512 GB OLED', subid: '946113' },
-  { name: '1 TB OLED',   subid: '946114' },
+const ALL_MODELS = [
+  { name: '64 GB LCD',   subid: '903905',  proto: 'CICBBhAB',  isNew: false },
+  { name: '256 GB LCD',  subid: '903906',  proto: 'CKgBBhAB',  isNew: false },
+  { name: '512 GB LCD',  subid: '903907',  proto: 'COgBBhAB',  isNew: false },
+  { name: '512 GB OLED', subid: '1202542', proto: 'CJCZBxAB',  isNew: false },
+  { name: '1 TB OLED',   subid: '1202547', proto: 'CLCZBxAB',  isNew: false },
+  { name: '256 GB LCD',  subid: '595604',  proto: 'COjkIhAB',  isNew: true  },
+  { name: '512 GB OLED', subid: '946113',  proto: 'CKjkIhAB',  isNew: true  },
+  { name: '1 TB OLED',   subid: '946114',  proto: 'CLjkIhAB',  isNew: true  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -37,19 +34,19 @@ const db        = admin.firestore();
 const messaging = admin.messaging();
 
 // ---------------------------------------------------------------------------
-// HTML stock detection  (mirrors app logic)
+// API stock detection
 // ---------------------------------------------------------------------------
 
-function parseStock(html, models) {
-  return models.map(model => {
-    const pattern = new RegExp(`data-ds-packageid="${model.subid}"`, 'i');
-    const idx = html.search(pattern);
-    if (idx === -1) return { ...model, inStock: false };
-    const context = html.slice(Math.max(0, idx - 500), idx + 1000);
-    const hasAddToCart  = /btn_addtocart|add.?to.?cart|addtocart/i.test(context);
-    const hasOutOfStock = /out.?of.?stock|not.?available/i.test(context);
-    return { ...model, inStock: hasAddToCart && !hasOutOfStock };
-  });
+async function checkStock(model) {
+  const url = `${STOCK_API}?origin=https://store.steampowered.com&input_protobuf_encoded=${model.proto}`;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    const text = await res.text();
+    return { ...model, inStock: text.trim().length > 0 };
+  } catch (err) {
+    console.error(`[poll] fetch error for ${model.name} (${model.subid}):`, err.message);
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -134,28 +131,22 @@ async function notify(modelName, isNew) {
 
 const prevState = new Map(); // subid -> boolean
 
-async function pollUrl(url, models, isNew) {
-  let html;
-  try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal:  AbortSignal.timeout(15_000),
-    });
-    html = await res.text();
-  } catch (err) {
-    console.error(`[poll] fetch error for ${url}:`, err.message);
-    return;
-  }
+async function poll() {
+  const timestamp = new Date().toISOString();
+  console.log(`[poll] checking stock at ${timestamp}`);
 
-  const results = parseStock(html, models);
+  const results = await Promise.all(ALL_MODELS.map(checkStock));
 
-  for (const { name, subid, inStock } of results) {
+  for (const result of results) {
+    if (result === null) continue; // fetch failed, skip
+
+    const { name, subid, isNew, inStock } = result;
     const prev = prevState.get(subid);
 
     if (prev === undefined) {
       // First run — record state, no notification
       prevState.set(subid, inStock);
-      console.log(`[init] ${name}: ${inStock ? 'IN STOCK' : 'out of stock'}`);
+      console.log(`[init] ${name} (${isNew ? 'new' : 'refurb'}): ${inStock ? 'IN STOCK' : 'out of stock'}`);
       continue;
     }
 
@@ -166,15 +157,6 @@ async function pollUrl(url, models, isNew) {
 
     prevState.set(subid, inStock);
   }
-}
-
-async function poll() {
-  const timestamp = new Date().toISOString();
-  console.log(`[poll] checking stock at ${timestamp}`);
-  await Promise.all([
-    pollUrl(REFURB_URL, REFURBISHED_MODELS, false),
-    pollUrl(NEW_URL,    NEW_MODELS,         true),
-  ]);
 }
 
 // ---------------------------------------------------------------------------
